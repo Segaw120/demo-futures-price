@@ -59,7 +59,8 @@ if st.button("Fetch latest"):
             else:
                 df_display = df_weekdays.copy()
         else:
-            df_display = df_weekdays.copy()
+            # If toggle is OFF, exclude today if it exists in the history
+            df_display = df_weekdays[df_weekdays.index != today].copy()
 
         if "is_estimated" not in df_display.columns:
             df_display["is_estimated"] = False
