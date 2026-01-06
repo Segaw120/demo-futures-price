@@ -3,3 +3,5 @@ yahooquery
 pandas
 numpy
 python-dateutil
+torch
+scikit-learn
