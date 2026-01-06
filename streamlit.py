@@ -33,31 +33,32 @@ if st.button("Fetch latest"):
             df_raw, int(n_weekdays), st.session_state
         )
 
-        today = datetime.utcnow().date()
+    today = datetime.utcnow().date()
+    include_today = st.sidebar.checkbox("Include Today's Estimate", value=True)
 
-        if today.weekday() < 5:
-            if df_weekdays.empty or df_weekdays.index[-1] != today:
-                try:
-                    yesterday_close = fetch_last_completed_close(
-                        symbol, st.session_state
-                    )
-                except Exception:
-                    yesterday_close = None
-
-                snapshot = fetch_snapshot(symbol, st.session_state)
-                est = build_today_estimate(
-                    yesterday_close, snapshot, st.session_state
+    if include_today and today.weekday() < 5:
+        if df_weekdays.empty or df_weekdays.index[-1] != today:
+            try:
+                yesterday_close = fetch_last_completed_close(
+                    symbol, st.session_state
                 )
-                est.name = today
+            except Exception:
+                yesterday_close = None
 
-                df_display = pd.concat(
-                    [df_weekdays, pd.DataFrame([est])],
-                    axis=0,
-                )
-            else:
-                df_display = df_weekdays.copy()
+            snapshot = fetch_snapshot(symbol, st.session_state)
+            est = build_today_estimate(
+                yesterday_close, snapshot, st.session_state
+            )
+            est.name = today
+
+            df_display = pd.concat(
+                [df_weekdays, pd.DataFrame([est])],
+                axis=0,
+            )
         else:
             df_display = df_weekdays.copy()
+    else:
+        df_display = df_weekdays.copy()
 
         if "is_estimated" not in df_display.columns:
             df_display["is_estimated"] = False
