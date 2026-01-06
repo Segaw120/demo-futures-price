@@ -2,7 +2,7 @@ from datetime import datetime
 import streamlit as st
 import pandas as pd
 
-from data_fetcher import (
+from module import (
     fetch_recent_daily_history,
     last_n_weekdays,
     fetch_snapshot,
