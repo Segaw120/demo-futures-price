@@ -112,7 +112,21 @@ def fetch_snapshot(symbol: str, session_state=None) -> dict:
     _ensure_ticker()
     t = Ticker(symbol)
 
-    snap = t.price.get(symbol, {}) or {}
+    try:
+        p = t.price
+    except Exception as e:
+        logger.warning(f"Failed to get t.price: {e}")
+        p = {}
+
+    if not isinstance(p, dict):
+        logger.warning(f"t.price returned non-dict: {type(p)}")
+        p = {}
+
+    snap = p.get(symbol, {}) or {}
+    
+    if not isinstance(snap, dict):
+        logger.warning(f"Snapshot for {symbol} is not a dict: {snap}")
+        snap = {}
 
     result = {
         "price": snap.get("regularMarketPrice"),
