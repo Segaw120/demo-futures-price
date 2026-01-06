@@ -2,8 +2,13 @@ from datetime import datetime
 import streamlit as st
 import pandas as pd
 
-from module import fetch_recent_daily_history, last_n_weekdays, fetch_snapshot, fetch_last_completed_close, build_today_estimate
-
+from data_fetcher import (
+    fetch_recent_daily_history,
+    last_n_weekdays,
+    fetch_snapshot,
+    fetch_last_completed_close,
+    build_today_estimate,
+)
 
 SYMBOL_DEFAULT = "GC=F"
 
