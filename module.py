@@ -53,14 +53,19 @@ def fetch_recent_daily_history(symbol: str, lookback_days: int, session_state=No
     _ensure_ticker()
     t = Ticker(symbol)
 
+    # Calculate explicit start and end dates based on lookback_days
+    end_date = datetime.utcnow()
+    start_date = end_date - pd.Timedelta(days=lookback_days)
+    
     st_json_log(
         "info",
         "fetch_recent_daily_history.start",
-        {"symbol": symbol, "lookback_days": lookback_days},
+        {"symbol": symbol, "lookback_days": lookback_days, "start": str(start_date.date()), "end": str(end_date.date())},
         session_state,
     )
 
-    raw = t.history(period=f"{lookback_days}d", interval="1d")
+    # Use explicit start/end for precise calendar window
+    raw = t.history(start=start_date.strftime("%Y-%m-%d"), end=end_date.strftime("%Y-%m-%d"), interval="1d")
 
     if raw is None or raw.empty:
         st_json_log("warn", "fetch_recent_daily_history.empty", {"symbol": symbol}, session_state)
