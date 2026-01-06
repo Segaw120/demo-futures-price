@@ -23,6 +23,7 @@ st.sidebar.header("Settings")
 symbol = st.sidebar.text_input("Yahoo Symbol", SYMBOL_DEFAULT)
 lookback_days = st.sidebar.number_input("Calendar lookback", 7, 30, 14)
 n_weekdays = st.sidebar.number_input("Last N weekdays", 1, 10, 7)
+include_today = st.sidebar.checkbox("Include Today's Estimate", value=True)
 
 if st.button("Fetch latest"):
     try:
@@ -33,32 +34,32 @@ if st.button("Fetch latest"):
             df_raw, int(n_weekdays), st.session_state
         )
 
-    today = datetime.utcnow().date()
-    include_today = st.sidebar.checkbox("Include Today's Estimate", value=True)
+        today = datetime.utcnow().date()
+        
+        # Only fetch/calculate estimate if the toggle is ON
+        if include_today and today.weekday() < 5:
+            if df_weekdays.empty or df_weekdays.index[-1] != today:
+                try:
+                    yesterday_close = fetch_last_completed_close(
+                        symbol, st.session_state
+                    )
+                except Exception:
+                    yesterday_close = None
 
-    if include_today and today.weekday() < 5:
-        if df_weekdays.empty or df_weekdays.index[-1] != today:
-            try:
-                yesterday_close = fetch_last_completed_close(
-                    symbol, st.session_state
+                snapshot = fetch_snapshot(symbol, st.session_state)
+                est = build_today_estimate(
+                    yesterday_close, snapshot, st.session_state
                 )
-            except Exception:
-                yesterday_close = None
+                est.name = today
 
-            snapshot = fetch_snapshot(symbol, st.session_state)
-            est = build_today_estimate(
-                yesterday_close, snapshot, st.session_state
-            )
-            est.name = today
-
-            df_display = pd.concat(
-                [df_weekdays, pd.DataFrame([est])],
-                axis=0,
-            )
+                df_display = pd.concat(
+                    [df_weekdays, pd.DataFrame([est])],
+                    axis=0,
+                )
+            else:
+                df_display = df_weekdays.copy()
         else:
             df_display = df_weekdays.copy()
-    else:
-        df_display = df_weekdays.copy()
 
         if "is_estimated" not in df_display.columns:
             df_display["is_estimated"] = False
