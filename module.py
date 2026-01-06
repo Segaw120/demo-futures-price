@@ -69,7 +69,7 @@ def fetch_recent_daily_history(symbol: str, lookback_days: int, session_state=No
     if isinstance(raw.index, pd.MultiIndex):
         raw = raw.reset_index(level=0, drop=True)
 
-    raw.index = pd.to_datetime(raw.index, errors="coerce").normalize().date
+    raw.index = [pd.to_datetime(x).replace(tzinfo=None).date() for x in raw.index]
     raw.index.name = "date"
 
     for c in ["open", "high", "low", "close", "volume"]:
@@ -137,7 +137,7 @@ def fetch_last_completed_close(symbol: str, session_state=None) -> float:
     if isinstance(hist.index, pd.MultiIndex):
         hist = hist.reset_index(level=0, drop=True)
 
-    hist.index = pd.to_datetime(hist.index).normalize().date
+    hist.index = [pd.to_datetime(x).replace(tzinfo=None).date() for x in hist.index]
     hist_valid = hist[hist["close"].notna()]
 
     if hist_valid.empty:
