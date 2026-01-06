@@ -174,12 +174,18 @@ def fetch_last_completed_close(symbol: str, session_state=None) -> float:
 
 
 def build_today_estimate(yesterday_close: float, snapshot: dict, session_state=None) -> pd.Series:
+    # Fallback: if 'price' is missing, try to use 'open' (yesterday_close) as the current price estimate
+    # This prevents an empty-looking row if we only have the open price.
+    price = snapshot.get("price")
+    if price is None and yesterday_close is not None:
+        price = float(yesterday_close)
+
     row = {
         "open": float(yesterday_close) if yesterday_close is not None else np.nan,
-        "high": snapshot.get("high"),
-        "low": snapshot.get("low"),
-        "close": snapshot.get("price"),
-        "volume": snapshot.get("volume"),
+        "high": snapshot.get("high") if snapshot.get("high") is not None else price,
+        "low": snapshot.get("low") if snapshot.get("low") is not None else price,
+        "close": price,
+        "volume": snapshot.get("volume") if snapshot.get("volume") is not None else 0,
         "is_estimated": True,
     }
 
