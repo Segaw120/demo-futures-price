@@ -53,19 +53,14 @@ def fetch_recent_daily_history(symbol: str, lookback_days: int, session_state=No
     _ensure_ticker()
     t = Ticker(symbol)
 
-    # Calculate explicit start and end dates based on lookback_days
-    end_date = datetime.utcnow()
-    start_date = end_date - pd.Timedelta(days=lookback_days)
-    
     st_json_log(
         "info",
         "fetch_recent_daily_history.start",
-        {"symbol": symbol, "lookback_days": lookback_days, "start": str(start_date.date()), "end": str(end_date.date())},
+        {"symbol": symbol, "lookback_days": lookback_days},
         session_state,
     )
 
-    # Use explicit start/end for precise calendar window
-    raw = t.history(start=start_date.strftime("%Y-%m-%d"), end=end_date.strftime("%Y-%m-%d"), interval="1d")
+    raw = t.history(period=f"{lookback_days}d", interval="1d")
 
     if raw is None or raw.empty:
         st_json_log("warn", "fetch_recent_daily_history.empty", {"symbol": symbol}, session_state)
@@ -112,21 +107,7 @@ def fetch_snapshot(symbol: str, session_state=None) -> dict:
     _ensure_ticker()
     t = Ticker(symbol)
 
-    try:
-        p = t.price
-    except Exception as e:
-        logger.warning(f"Failed to get t.price: {e}")
-        p = {}
-
-    if not isinstance(p, dict):
-        logger.warning(f"t.price returned non-dict: {type(p)}")
-        p = {}
-
-    snap = p.get(symbol, {}) or {}
-    
-    if not isinstance(snap, dict):
-        logger.warning(f"Snapshot for {symbol} is not a dict: {snap}")
-        snap = {}
+    snap = t.price.get(symbol, {}) or {}
 
     result = {
         "price": snap.get("regularMarketPrice"),
@@ -174,18 +155,12 @@ def fetch_last_completed_close(symbol: str, session_state=None) -> float:
 
 
 def build_today_estimate(yesterday_close: float, snapshot: dict, session_state=None) -> pd.Series:
-    # Fallback: if 'price' is missing, try to use 'open' (yesterday_close) as the current price estimate
-    # This prevents an empty-looking row if we only have the open price.
-    price = snapshot.get("price")
-    if price is None and yesterday_close is not None:
-        price = float(yesterday_close)
-
     row = {
         "open": float(yesterday_close) if yesterday_close is not None else np.nan,
-        "high": snapshot.get("high") if snapshot.get("high") is not None else price,
-        "low": snapshot.get("low") if snapshot.get("low") is not None else price,
-        "close": price,
-        "volume": snapshot.get("volume") if snapshot.get("volume") is not None else 0,
+        "high": snapshot.get("high"),
+        "low": snapshot.get("low"),
+        "close": snapshot.get("price"),
+        "volume": snapshot.get("volume"),
         "is_estimated": True,
     }
 
