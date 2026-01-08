@@ -261,7 +261,7 @@ if "temp_scaler" not in st.session_state:
 # Fetch Gold data
 if st.button("Fetch latest Gold (GC=F)"):
     try:
-        symbol = "CL=F"
+        symbol = "GC=F"
         # 1. Fetch 365 days history using our module
         df_raw = fetch_recent_daily_history(
             symbol, 365, st.session_state
