@@ -2,7 +2,7 @@
 import io
 import re
 import logging
-from datetime import datetime, date
+from datetime import date
 
 import numpy as np
 import pandas as pd
@@ -13,6 +13,10 @@ import torch.nn as nn
 from sklearn.preprocessing import StandardScaler
 from module import fetch_recent_daily_history
 
+# 🔐 PyTorch 2.6+ safe globals
+import torch.serialization
+torch.serialization.add_safe_globals([StandardScaler])
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("l1_backtest")
 
@@ -20,7 +24,7 @@ st.set_page_config(page_title="Cascade Trader — L1 Backtester", layout="wide")
 st.title("Cascade Trader — L1 Backtesting Engine")
 
 # ---------------------------
-# Model definition (FIXED)
+# Model definition (MATCHES TRAINING)
 # ---------------------------
 class ConvBlock(nn.Module):
     def __init__(self, c_in, c_out, k=3, d=1, pdrop=0.1):
@@ -33,23 +37,18 @@ class ConvBlock(nn.Module):
         self.res = (c_in == c_out)
 
     def forward(self, x):
-        out = self.conv(x)
-        out = self.bn(out)
-        out = self.act(out)
-        out = self.drop(out)
-        return out + x if self.res else out
+        y = self.drop(self.act(self.bn(self.conv(x))))
+        return y + x if self.res else y
 
 
 class Level1ScopeCNN(nn.Module):
     def __init__(self, in_features=12, channels=(32, 64, 128)):
         super().__init__()
         chs = [in_features] + list(channels)
-
         self.blocks = nn.Sequential(
-            *[ConvBlock(chs[i], chs[i + 1], k=3, d=1) for i in range(len(channels))]
+            *[ConvBlock(chs[i], chs[i + 1]) for i in range(len(channels))]
         )
-
-        # 🔧 FIX: must be named `project`
+        # MUST be named `project`
         self.project = nn.Conv1d(chs[-1], chs[-1], kernel_size=1)
         self.head = nn.Linear(chs[-1], 1)
 
@@ -84,8 +83,8 @@ def compute_engineered_features(df):
 def to_sequences(arr, idx, seq_len):
     out = []
     for i in idx:
-        start = max(0, i - seq_len + 1)
-        seq = arr[start:i + 1]
+        s = max(0, i - seq_len + 1)
+        seq = arr[s:i + 1]
         if len(seq) < seq_len:
             pad = np.repeat(seq[[0]], seq_len - len(seq), axis=0)
             seq = np.vstack([pad, seq])
@@ -94,47 +93,40 @@ def to_sequences(arr, idx, seq_len):
 
 
 # ---------------------------
-# Checkpoint loading (UNCHANGED)
+# SAFE checkpoint loading (FIXED FOR PYTORCH 2.6+)
 # ---------------------------
-def _is_state_dict_like(d):
-    if not isinstance(d, dict):
-        return False
-    for k in list(d.keys())[:20]:
-        if any(x in k for x in ("conv.weight", "bn.weight", "head.weight", "project.weight")):
-            return True
-    return True
+def strip_module_prefix(sd):
+    return {k.replace("module.", ""): v for k, v in sd.items()}
 
 
-def extract_state_dict(container):
-    if isinstance(container, dict):
+def extract_state_dict(obj):
+    if isinstance(obj, dict):
         for k in ("model_state_dict", "state_dict", "model"):
-            if k in container:
-                return container[k], {}
-        return container, {}
-    return None, {}
+            if k in obj:
+                return obj[k]
+        return obj
+    return obj
 
 
-def strip_module_prefix(state):
-    return {k.replace("module.", ""): v for k, v in state.items()}
+def load_l1_from_checkpoint_bytes(raw_bytes):
+    buf = io.BytesIO(raw_bytes)
 
+    try:
+        # 🔐 First attempt: safe load
+        ckpt = torch.load(buf, map_location="cpu", weights_only=True)
+    except Exception:
+        # 🔓 Trusted fallback
+        buf.seek(0)
+        ckpt = torch.load(buf, map_location="cpu", weights_only=False)
 
-def infer_arch_from_state(state):
-    chans = []
-    for k, v in state.items():
-        if "blocks" in k and "conv.weight" in k:
-            chans.append(v.shape[0])
-    return 12, tuple(sorted(chans))
-
-
-def load_l1_from_checkpoint_bytes(raw):
-    state = torch.load(io.BytesIO(raw), map_location="cpu")
-    state_dict, _ = extract_state_dict(state)
-    state_dict = strip_module_prefix(state_dict)
+    state_dict = strip_module_prefix(extract_state_dict(ckpt))
 
     model = Level1ScopeCNN()
     model.load_state_dict(state_dict, strict=True)
     model.eval()
-    return model, None, None, state, {}
+
+    return model, None, None, ckpt, {}
+
 
 # ---------------------------
 # Sidebar
@@ -164,11 +156,11 @@ ckpt = st.sidebar.file_uploader("Upload model.pt", type=["pt", "pth"])
 if ckpt:
     model, _, _, _, _ = load_l1_from_checkpoint_bytes(ckpt.read())
     st.session_state.model = model
-    st.success("Model loaded")
+    st.success("Model loaded successfully")
 
 
 # ---------------------------
-# Backtest
+# Run backtest
 # ---------------------------
 if st.button("Run Backtest"):
     model = st.session_state.model
@@ -177,7 +169,11 @@ if st.button("Run Backtest"):
     df = df[(df.index >= start_date) & (df.index <= end_date)]
 
     feats = compute_engineered_features(df)
-    Xdf = pd.concat([df[["open", "high", "low", "close", "volume"]], feats], axis=1)
+    Xdf = pd.concat(
+        [df[["open", "high", "low", "close", "volume"]], feats],
+        axis=1
+    ).astype("float32")
+
     scaler = StandardScaler().fit(Xdf.values)
     Xscaled = scaler.transform(Xdf.values)
 
@@ -186,7 +182,7 @@ if st.button("Run Backtest"):
 
     for i in range(seq_len - 1, len(df) - 1):
         Xseq = to_sequences(Xscaled, [i], seq_len)
-        xb = torch.tensor(Xseq.transpose(0, 2, 1), dtype=torch.float32)
+        xb = torch.tensor(Xseq.transpose(0, 2, 1))
 
         with torch.no_grad():
             logit, _ = model(xb)
