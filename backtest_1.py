@@ -101,6 +101,7 @@ def to_sequences(arr, idx, seq_len):
         out.append(seq)
     return np.array(out)
 
+
 # ---------------------------
 # Robust checkpoint helpers (copied from inference loader)
 # ---------------------------
@@ -179,7 +180,6 @@ def load_l1_from_checkpoint_bytes(raw_bytes):
     model.eval()
 
     return model, None, None, loaded, extras
-
 
 # ---------------------------
 # Sidebar controls
@@ -266,6 +266,13 @@ if st.button("Run Backtest"):
         pnl = (exit_px-entry) if side=="LONG" else (entry-exit_px)
         equity += pnl
 
-        trades.append({"date":df.index[i],"side":side,"entry":entry,"exit":exit_px,"pnl":pnl,"equity":equity})
+        trades.append({
+            "date": df.index[i],
+            "side": side,
+            "entry": entry,
+            "exit": exit_px,
+            "pnl": pnl,
+            "equity": equity
+        })
 
     st.dataframe(pd.DataFrame(trades))
