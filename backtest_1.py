@@ -24,7 +24,7 @@ st.set_page_config(page_title="Cascade Trader — L1 Backtester", layout="wide")
 st.title("Cascade Trader — L1 Backtesting Engine")
 
 # ---------------------------
-# Model definition (FIXED TO MATCH CHECKPOINT)
+# Model definition (FIXED MIXED KERNEL SIZES)
 # ---------------------------
 class ConvBlock(nn.Module):
     def __init__(self, c_in, c_out, k=3, d=1, pdrop=0.1):
@@ -43,14 +43,22 @@ class ConvBlock(nn.Module):
 
 
 class Level1ScopeCNN(nn.Module):
-    # FIX: Default in_features=10 to match checkpoint
     def __init__(self, in_features=10, channels=(32, 64, 128)):
         super().__init__()
         chs = [in_features] + list(channels)
+        
+        # FIX: Explicitly define kernel sizes based on error logs
+        # Block 0: k=5
+        # Block 1+: k=3
+        kernels = [5] + [3] * (len(channels) - 1)
+
         self.blocks = nn.Sequential(
-            # FIX: Pass k=5 to match checkpoint kernel size
-            *[ConvBlock(chs[i], chs[i + 1], k=5) for i in range(len(channels))]
+            *[
+                ConvBlock(chs[i], chs[i + 1], k=kernels[i]) 
+                for i in range(len(channels))
+            ]
         )
+        
         # MUST be named `project`
         self.project = nn.Conv1d(chs[-1], chs[-1], kernel_size=1)
         self.head = nn.Linear(chs[-1], 1)
@@ -63,7 +71,7 @@ class Level1ScopeCNN(nn.Module):
 
 
 # ---------------------------
-# Feature engineering (UPDATED FOR 10 FEATURES)
+# Feature engineering (10 FEATURES)
 # ---------------------------
 def compute_engineered_features(df):
     f = pd.DataFrame(index=df.index)
@@ -80,8 +88,7 @@ def compute_engineered_features(df):
     f["mom_5"] = (c - c.rolling(5).mean()).fillna(0.0)
     f["vol_5"] = ret1.rolling(5).std().fillna(0.0)
     
-    # ADDED: 10th feature to match model input channels (5 raw + 5 eng = 10)
-    # Using a simple proxy for RSI or similar momentum if unknown
+    # ADDED: 10th feature to match model input channels
     delta = c.diff()
     up = delta.clip(lower=0)
     down = -1 * delta.clip(upper=0)
@@ -106,8 +113,10 @@ def to_sequences(arr, idx, seq_len):
     return np.array(out)
 
 
+
+
 # ---------------------------
-# SAFE checkpoint loading (FIXED FOR PYTORCH 2.6+)
+# SAFE checkpoint loading
 # ---------------------------
 def strip_module_prefix(sd):
     return {k.replace("module.", ""): v for k, v in sd.items()}
