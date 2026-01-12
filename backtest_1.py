@@ -1,4 +1,5 @@
-# backtest_full.py
+# Chunk 1: Imports, Model Definition, and Utility Functions
+
 import io
 import re
 import logging
@@ -41,12 +42,11 @@ class ConvBlock(nn.Module):
         y = self.drop(self.act(self.bn(self.conv(x))))
         return y + x if self.res else y
 
-
 class Level1ScopeCNN(nn.Module):
     def __init__(self, in_features=10, channels=(32, 64, 128)):
         super().__init__()
         chs = [in_features] + list(channels)
-        
+
         # FIX: Explicitly define kernel sizes based on error logs
         # Block 0: k=5
         # Block 1+: k=3
@@ -58,7 +58,7 @@ class Level1ScopeCNN(nn.Module):
                 for i in range(len(channels))
             ]
         )
-        
+
         # MUST be named `project`
         self.project = nn.Conv1d(chs[-1], chs[-1], kernel_size=1)
         self.head = nn.Linear(chs[-1], 1)
@@ -68,7 +68,6 @@ class Level1ScopeCNN(nn.Module):
         z = self.project(z)
         z = z.mean(dim=-1)
         return self.head(z), z
-
 
 # ---------------------------
 # Feature engineering (10 FEATURES)
@@ -87,7 +86,7 @@ def compute_engineered_features(df):
 
     f["mom_5"] = (c - c.rolling(5).mean()).fillna(0.0)
     f["vol_5"] = ret1.rolling(5).std().fillna(0.0)
-    
+
     # ADDED: 10th feature to match model input channels
     delta = c.diff()
     up = delta.clip(lower=0)
@@ -100,7 +99,6 @@ def compute_engineered_features(df):
 
     return f.fillna(0.0)
 
-
 def to_sequences(arr, idx, seq_len):
     out = []
     for i in idx:
@@ -112,15 +110,11 @@ def to_sequences(arr, idx, seq_len):
         out.append(seq)
     return np.array(out)
 
-
-
-
 # ---------------------------
 # SAFE checkpoint loading
 # ---------------------------
 def strip_module_prefix(sd):
     return {k.replace("module.", ""): v for k, v in sd.items()}
-
 
 def extract_state_dict(obj):
     if isinstance(obj, dict):
@@ -129,7 +123,6 @@ def extract_state_dict(obj):
                 return obj[k]
         return obj
     return obj
-
 
 def load_l1_from_checkpoint_bytes(raw_bytes):
     buf = io.BytesIO(raw_bytes)
@@ -149,6 +142,9 @@ def load_l1_from_checkpoint_bytes(raw_bytes):
     model.eval()
 
     return model, None, None, ckpt, {}
+
+
+# Chunk 2: Streamlit UI Setup and Main Logic
 
 # ---------------------------
 # Sidebar
@@ -171,7 +167,6 @@ risk_pct = st.sidebar.slider("Risk % per trade", 0.1, 5.0, 1.0) / 100.0
 
 ckpt = st.sidebar.file_uploader("Upload model.pt", type=["pt", "pth"])
 
-
 # ---------------------------
 # Load model
 # ---------------------------
@@ -180,7 +175,6 @@ if ckpt:
     st.session_state.model = model
     st.success("Model loaded successfully")
 
-
 # ---------------------------
 # Run backtest
 # ---------------------------
@@ -188,14 +182,14 @@ if st.button("Run Backtest"):
     if 'model' not in st.session_state:
         st.error("Please upload a model checkpoint first.")
         st.stop()
-        
+
     model = st.session_state.model
 
     df = fetch_recent_daily_history(symbol, 3000)
     df = df[(df.index >= start_date) & (df.index <= end_date)]
 
     feats = compute_engineered_features(df)
-    
+
     # Concatenate 5 raw features + 5 engineered features = 10 total
     Xdf = pd.concat(
         [df[["open", "high", "low", "close", "volume"]], feats],
@@ -254,4 +248,23 @@ if st.button("Run Backtest"):
             "equity": equity
         })
 
-    st.dataframe(pd.DataFrame(trades))
+    trades_df = pd.DataFrame(trades)
+    st.dataframe(trades_df)
+
+    # Calculate metrics
+    total_trades = len(trades)
+    winning_trades = len([t for t in trades if t["pnl"] > 0])
+    win_rate = (winning_trades / total_trades) * 100 if total_trades > 0 else 0
+    initial_balance = account_balance
+    final_equity = equity
+    return_percent = ((final_equity - initial_balance) / initial_balance) * 100
+
+    # Calculate max drawdown
+    equity_curve = [initial_balance] + [t["equity"] for t in trades]
+    max_drawdown = max([(equity_curve[i] - max(equity_curve[:i+1])) / equity_curve[i] for i in range(len(equity_curve))]) * 100
+
+    # Display metrics
+    st.subheader("Backtest Metrics")
+    st.write(f"Win Rate: {win_rate:.2f}%")
+    st.write(f"Max Drawdown: {max_drawdown:.2f}%")
+    st.write(f"Return: {return_percent:.2f}%")
