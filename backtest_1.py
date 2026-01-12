@@ -24,11 +24,12 @@ st.set_page_config(page_title="Cascade Trader — L1 Backtester", layout="wide")
 st.title("Cascade Trader — L1 Backtesting Engine")
 
 # ---------------------------
-# Model definition (MATCHES TRAINING)
+# Model definition (FIXED TO MATCH CHECKPOINT)
 # ---------------------------
 class ConvBlock(nn.Module):
     def __init__(self, c_in, c_out, k=3, d=1, pdrop=0.1):
         super().__init__()
+        # Padding ensures output length matches input length
         pad = (k - 1) * d // 2
         self.conv = nn.Conv1d(c_in, c_out, kernel_size=k, dilation=d, padding=pad)
         self.bn = nn.BatchNorm1d(c_out)
@@ -42,11 +43,13 @@ class ConvBlock(nn.Module):
 
 
 class Level1ScopeCNN(nn.Module):
-    def __init__(self, in_features=12, channels=(32, 64, 128)):
+    # FIX: Default in_features=10 to match checkpoint
+    def __init__(self, in_features=10, channels=(32, 64, 128)):
         super().__init__()
         chs = [in_features] + list(channels)
         self.blocks = nn.Sequential(
-            *[ConvBlock(chs[i], chs[i + 1]) for i in range(len(channels))]
+            # FIX: Pass k=5 to match checkpoint kernel size
+            *[ConvBlock(chs[i], chs[i + 1], k=5) for i in range(len(channels))]
         )
         # MUST be named `project`
         self.project = nn.Conv1d(chs[-1], chs[-1], kernel_size=1)
@@ -60,7 +63,7 @@ class Level1ScopeCNN(nn.Module):
 
 
 # ---------------------------
-# Feature engineering (UNCHANGED)
+# Feature engineering (UPDATED FOR 10 FEATURES)
 # ---------------------------
 def compute_engineered_features(df):
     f = pd.DataFrame(index=df.index)
@@ -76,6 +79,17 @@ def compute_engineered_features(df):
 
     f["mom_5"] = (c - c.rolling(5).mean()).fillna(0.0)
     f["vol_5"] = ret1.rolling(5).std().fillna(0.0)
+    
+    # ADDED: 10th feature to match model input channels (5 raw + 5 eng = 10)
+    # Using a simple proxy for RSI or similar momentum if unknown
+    delta = c.diff()
+    up = delta.clip(lower=0)
+    down = -1 * delta.clip(upper=0)
+    ma_up = up.rolling(14).mean().fillna(0.0)
+    ma_down = down.rolling(14).mean().fillna(0.0)
+    rs = ma_up / ma_down.replace(0, 1)
+    f["rsi_14"] = 100 - (100 / (1 + rs))
+    f["rsi_14"] = f["rsi_14"].fillna(50.0)
 
     return f.fillna(0.0)
 
@@ -127,7 +141,6 @@ def load_l1_from_checkpoint_bytes(raw_bytes):
 
     return model, None, None, ckpt, {}
 
-
 # ---------------------------
 # Sidebar
 # ---------------------------
@@ -163,12 +176,18 @@ if ckpt:
 # Run backtest
 # ---------------------------
 if st.button("Run Backtest"):
+    if 'model' not in st.session_state:
+        st.error("Please upload a model checkpoint first.")
+        st.stop()
+        
     model = st.session_state.model
 
     df = fetch_recent_daily_history(symbol, 3000)
     df = df[(df.index >= start_date) & (df.index <= end_date)]
 
     feats = compute_engineered_features(df)
+    
+    # Concatenate 5 raw features + 5 engineered features = 10 total
     Xdf = pd.concat(
         [df[["open", "high", "low", "close", "volume"]], feats],
         axis=1
